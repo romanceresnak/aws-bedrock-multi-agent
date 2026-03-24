@@ -4,62 +4,7 @@ Production-ready multi-agent system using AWS Bedrock Agents with custom delegat
 
 ## 🏗️ Architecture
 
-```mermaid
-graph TB
-    User[👤 User]
-    APIGW[🌐 API Gateway]
-
-    subgraph AWS["AWS Cloud"]
-        Orch[⚡ Lambda Orchestrator]
-        QRewrite[🔍 Lambda Query Rewrite]
-
-        Supervisor[🎯 Bedrock Supervisor Agent<br/>Claude 3 Haiku]
-
-        subgraph "Specialized Agents"
-            RAGAgent[📚 RAG Agent<br/>Claude 3 Haiku]
-            ImageAgent[🎨 Image Agent<br/>Claude 3 Haiku]
-        end
-
-        subgraph "Action Groups"
-            InvokeRAG[⚡ Lambda Invoke RAG]
-            ImageAction[⚡ Lambda Image Action]
-        end
-
-        KB[📖 Bedrock Knowledge Base]
-        OpenSearch[🔎 OpenSearch Serverless]
-        S3Docs[📦 S3 Docs Bucket]
-
-        Nova[🎨 Amazon Nova Canvas]
-        S3Images[🖼️ S3 Images Bucket]
-
-        Grader[⭐ Lambda Grader]
-        A2I[👥 Amazon A2I]
-        SageMaker[🤖 SageMaker]
-    end
-
-    User -->|POST /query| APIGW
-    APIGW --> Orch
-    Orch --> QRewrite
-    QRewrite --> Supervisor
-
-    Supervisor -->|Document Query| InvokeRAG
-    InvokeRAG --> RAGAgent
-    RAGAgent --> KB
-    KB --> OpenSearch
-    OpenSearch --> S3Docs
-
-    Supervisor -->|Image Request| ImageAction
-    ImageAction --> Nova
-    Nova --> S3Images
-
-    Supervisor --> Grader
-    Grader -->|Low Score| A2I
-    A2I --> SageMaker
-
-    style Supervisor fill:#e8f5e9,stroke:#1b5e20,stroke-width:3px
-    style RAGAgent fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px
-    style ImageAgent fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-```
+![Multi-Agent Architecture](docs/architecture.png)
 
 ### Flow Description
 

@@ -1,187 +1,325 @@
-# Multi-Agent Orchestration on AWS — 100% Native with Amazon Bedrock
+# AWS Bedrock Multi-Agent Orchestration
 
-A production-ready, AWS-native multi-agent architecture using Amazon Bedrock. No LangChain, no LangGraph, no third-party orchestration — only `boto3` and managed AWS services.
+Production-ready multi-agent system using AWS Bedrock Agents with custom delegation, RAG (Retrieval Augmented Generation), and image generation capabilities. Built with pure AWS services and Terraform.
 
-## Architecture
+## 🏗️ Architecture
 
+```mermaid
+graph TB
+    User[👤 User]
+    APIGW[🌐 API Gateway]
+
+    subgraph AWS["AWS Cloud"]
+        Orch[⚡ Lambda Orchestrator]
+        QRewrite[🔍 Lambda Query Rewrite]
+
+        Supervisor[🎯 Bedrock Supervisor Agent<br/>Claude 3 Haiku]
+
+        subgraph "Specialized Agents"
+            RAGAgent[📚 RAG Agent<br/>Claude 3 Haiku]
+            ImageAgent[🎨 Image Agent<br/>Claude 3 Haiku]
+        end
+
+        subgraph "Action Groups"
+            InvokeRAG[⚡ Lambda Invoke RAG]
+            ImageAction[⚡ Lambda Image Action]
+        end
+
+        KB[📖 Bedrock Knowledge Base]
+        OpenSearch[🔎 OpenSearch Serverless]
+        S3Docs[📦 S3 Docs Bucket]
+
+        Nova[🎨 Amazon Nova Canvas]
+        S3Images[🖼️ S3 Images Bucket]
+
+        Grader[⭐ Lambda Grader]
+        A2I[👥 Amazon A2I]
+        SageMaker[🤖 SageMaker]
+    end
+
+    User -->|POST /query| APIGW
+    APIGW --> Orch
+    Orch --> QRewrite
+    QRewrite --> Supervisor
+
+    Supervisor -->|Document Query| InvokeRAG
+    InvokeRAG --> RAGAgent
+    RAGAgent --> KB
+    KB --> OpenSearch
+    OpenSearch --> S3Docs
+
+    Supervisor -->|Image Request| ImageAction
+    ImageAction --> Nova
+    Nova --> S3Images
+
+    Supervisor --> Grader
+    Grader -->|Low Score| A2I
+    A2I --> SageMaker
+
+    style Supervisor fill:#e8f5e9,stroke:#1b5e20,stroke-width:3px
+    style RAGAgent fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px
+    style ImageAgent fill:#fce4ec,stroke:#880e4f,stroke-width:2px
 ```
-User Query
-    │
-    ▼
-Lambda (Query Rewrite)          ← Bedrock InvokeModel (Claude Haiku)
-    │
-    ▼
-Bedrock Supervisor Agent        ← orchestrates all sub-agents
-    ├── RAG Sub-Agent           ← Bedrock Agent + Knowledge Base (S3 / OpenSearch Serverless)
-    ├── Search Sub-Agent        ← Bedrock Agent + Knowledge Base (S3 / HYBRID search)
-    └── Image Sub-Agent         ← Bedrock Agent + Titan Image Generator v2
-          │
-          ▼
-    Grader Lambda               ← Bedrock InvokeModel (structured eval)
-          │
-       Match?
-      N ↙   ↘ Y
-  Retry   Human-in-the-Loop     ← Amazon A2I
-                │
-                ▼
-           Final Answer
+
+### Flow Description
+
+1. **User Query** → API Gateway → Orchestrator Lambda
+2. **Query Rewrite** → Claude Haiku optimizes the query
+3. **Supervisor Agent** → Analyzes query and decides:
+   - **Document query?** → Calls `search_documents` action → Invokes RAG Agent
+   - **Image request?** → Calls `generate_image` action → Generates with Nova Canvas
+   - **General question?** → Responds directly
+4. **Grader** → Evaluates response quality (1-5 score)
+5. **A2I** → Human review if quality is low (optional)
+
+## ✨ Key Features
+
+- ✅ **Multi-Agent Orchestration** - Supervisor coordinates specialized agents
+- ✅ **Custom Delegation** - Action Groups enable seamless inter-agent communication
+- ✅ **RAG with Citations** - Knowledge Base provides sourced, accurate answers
+- ✅ **Image Generation** - Amazon Nova Canvas creates images from text descriptions
+- ✅ **Query Enhancement** - Automatic query rewriting for better results
+- ✅ **Quality Grading** - Automated response evaluation
+- ✅ **Infrastructure as Code** - Complete Terraform deployment
+- ✅ **Serverless** - No servers to manage, scales automatically
+
+## 🛠️ Technology Stack
+
+| Component | AWS Service | Purpose |
+|-----------|-------------|---------|
+| **Agent Orchestration** | Bedrock Agents (Claude 3 Haiku) | Supervisor + RAG + Image agents |
+| **Delegation** | Action Groups + Lambda | Custom inter-agent communication |
+| **Vector Database** | OpenSearch Serverless | Semantic search with embeddings |
+| **Embeddings** | Titan Embed Text v2 | Document vectorization |
+| **Image Generation** | Amazon Nova Canvas | Text-to-image generation |
+| **Query Processing** | Lambda + Claude Haiku | Query rewrite & response grading |
+| **Human Review** | Amazon A2I + SageMaker | Quality assurance workflow |
+| **Storage** | S3 | Documents & generated images |
+| **API** | API Gateway | HTTP endpoint |
+| **Infrastructure** | Terraform | IaC deployment |
+
+## 📋 Prerequisites
+
+- **AWS CLI** configured (`aws configure`)
+- **Terraform** ≥ 1.5
+- **Python** ≥ 3.11
+- **Bedrock Model Access** in your region (eu-west-1 recommended):
+  - ✅ `anthropic.claude-3-haiku-20240307-v1:0`
+  - ✅ `amazon.titan-embed-text-v2:0`
+  - ✅ `amazon.nova-canvas-v1:0`
+
+> **Note:** Request model access in AWS Console → Bedrock → Model access
+
+## 🚀 Quick Start
+
+### 1. Clone Repository
+
+```bash
+git clone https://github.com/romanceresnak/aws-bedrock-multi-agent.git
+cd aws-bedrock-multi-agent
 ```
 
-## AWS Services Used
-
-| Component | AWS Service |
-|---|---|
-| Orchestrator | Bedrock Supervisor Agent (Claude 3.5 Sonnet v2) |
-| RAG / Search Agent | Bedrock Agent + Knowledge Base |
-| Vector Store | OpenSearch Serverless |
-| Embeddings | Amazon Titan Embed Text v2 |
-| Image Generation | Amazon Titan Image Generator v2 |
-| Grader & Query Rewrite | Lambda + Bedrock InvokeModel (Claude Haiku) |
-| Human Review | Amazon A2I |
-| Storage | Amazon S3 |
-| Infrastructure | Terraform |
-
-## Prerequisites
-
-- AWS CLI configured (`aws configure`)
-- Terraform ≥ 1.5
-- Python ≥ 3.11
-- Bedrock model access enabled in `eu-west-1` for:
-  - `anthropic.claude-3-haiku-20240307-v1:0`
-  - `anthropic.claude-3-sonnet-20240229-v1:0`
-  - `anthropic.claude-3-5-sonnet-20241022-v2:0`
-  - `amazon.titan-embed-text-v2:0`
-  - `amazon.titan-image-generator-v2:0`
-
-## Quick Start
-
-### 1. Install Python dependencies
+### 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment
-
-```bash
-cp .env.example .env
-# Edit .env — fill in AWS_ACCOUNT_ID at minimum
-```
-
-### 3. Deploy infrastructure with Terraform
+### 3. Deploy Infrastructure
 
 ```bash
 cd terraform
 terraform init
-terraform apply
-# Copy the outputs into your .env file
+terraform apply -auto-approve
+cd ..
 ```
 
-### 4. Package Lambda functions
+Copy the Terraform outputs to use in next steps.
+
+### 4. Create Bedrock Resources
+
+Run setup scripts in order:
 
 ```bash
-# From project root
-zip -j lambda/query_rewrite/function.zip lambda/query_rewrite/handler.py
-zip -j lambda/grader/function.zip lambda/grader/handler.py
-zip -j lambda/image_generation_action/function.zip lambda/image_generation_action/handler.py
-zip -j lambda/orchestrator/function.zip lambda/orchestrator/handler.py
-```
-
-Then re-run `terraform apply` to push the zips.
-
-### 5. Create Bedrock resources
-
-Run scripts in order — each script prints the IDs it creates and appends them to `.env`:
-
-```bash
+# 1. Create Knowledge Base with OpenSearch
 python scripts/01_create_knowledge_base.py
+
+# 2. Create RAG and Image agents
 python scripts/02_create_subagents.py
+
+# 3. Create Supervisor agent
 python scripts/03_create_supervisor.py
+
+# 4. Add document search delegation
+python scripts/add_supervisor_action_group.py
+
+# 5. Add image generation delegation
+python scripts/add_image_action_group.py
 ```
 
-### 6. Upload documents to S3
+Each script updates the `.env` file with created resource IDs.
+
+### 5. Upload Documents
 
 ```bash
-aws s3 cp my-docs/ s3://<your-docs-bucket>/reports/ --recursive
-```
+# Upload your documents to S3
+aws s3 cp your-documents/ s3://multi-agent-bedrock-dev-docs-<account-id>/reports/ --recursive
 
-Then trigger a sync ingestion:
-
-```bash
+# Sync Knowledge Base (re-index)
 python scripts/01_create_knowledge_base.py --sync
 ```
 
-### 7. (Manual) Create A2I Flow Definition
+### 6. Test the System
 
-Go to AWS Console → SageMaker → Augmented AI → Human review workflows.  
-Create a new workflow, copy the ARN, and set it as `A2I_FLOW_ARN` in `.env`.
+**Test in AWS Console:**
+1. Go to Bedrock → Agents → `multi-agent-supervisor-v2`
+2. Click **Test** (top right)
+3. Try queries:
+   - `"What is our remote work policy?"` → RAG delegation
+   - `"Generate an image of a sunset"` → Image generation
+   - `"Hello, how are you?"` → Direct response
 
-### 8. Test end-to-end
+**Test via API:**
+```bash
+curl -X POST https://<your-api-gateway-url>/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is our remote work policy?"}'
+```
+
+## 📂 Project Structure
+
+```
+aws-bedrock-multi-agent/
+├── README.md                    # This file
+├── requirements.txt             # Python dependencies
+├── .gitignore                   # Git ignore rules
+│
+├── lambda/                      # Lambda function handlers
+│   ├── orchestrator/handler.py       # Main entry point (API Gateway)
+│   ├── query_rewrite/handler.py      # Query optimization
+│   ├── grader/handler.py             # Response quality scoring
+│   ├── invoke_rag_agent/handler.py   # RAG delegation bridge
+│   └── image_generation_action/handler.py  # Image generation + S3
+│
+├── scripts/                     # Setup & deployment scripts
+│   ├── 01_create_knowledge_base.py   # Create KB + OpenSearch
+│   ├── 02_create_subagents.py        # Create RAG & Image agents
+│   ├── 03_create_supervisor.py       # Create Supervisor agent
+│   ├── add_supervisor_action_group.py  # Add document search delegation
+│   └── add_image_action_group.py     # Add image generation delegation
+│
+└── terraform/                   # Infrastructure as Code
+    ├── main.tf                  # Main configuration
+    ├── variables.tf             # Input variables
+    ├── outputs.tf               # Output values
+    ├── iam.tf                   # IAM roles & policies
+    ├── s3.tf                    # S3 buckets
+    ├── opensearch.tf            # OpenSearch Serverless
+    └── lambdas.tf               # Lambda functions + API Gateway
+```
+
+## 🎯 How It Works
+
+### Document Search Flow
+
+1. User asks: `"What is our remote work policy?"`
+2. Supervisor Agent analyzes query type
+3. Calls `search_documents` action group
+4. Lambda invokes RAG Agent
+5. RAG Agent queries Knowledge Base
+6. OpenSearch performs semantic search
+7. Returns answer with citations
+8. Supervisor presents to user
+
+### Image Generation Flow
+
+1. User asks: `"Generate an image of a sunset"`
+2. Supervisor Agent recognizes image request
+3. Calls `generate_image` action group
+4. Lambda invokes Nova Canvas
+5. Image generated and uploaded to S3
+6. Presigned URL returned to user
+7. Supervisor presents URL to user
+
+### Direct Response Flow
+
+1. User asks: `"Hello, how are you?"`
+2. Supervisor recognizes general query
+3. Responds directly without delegation
+
+## 💰 Cost Estimation
+
+Monthly costs for **low-moderate usage** (based on eu-west-1 pricing):
+
+| Service | Cost | Notes |
+|---------|------|-------|
+| **OpenSearch Serverless** | ~$350/month | 2 OCUs minimum (biggest cost) |
+| **Bedrock Invocations** | ~$5-20/month | Pay per token (Claude Haiku is cheap) |
+| **Lambda** | <$1/month | Free tier covers most usage |
+| **S3 Storage** | <$1/month | Minimal storage |
+| **API Gateway** | <$1/month | HTTP API pricing |
+| **Nova Canvas** | $0.04/image | Pay per image generated |
+| **A2I** | Variable | Only if human review used |
+
+**Total: ~$360-380/month** (OpenSearch is 95% of cost)
+
+> **Cost Optimization:** Consider deleting OpenSearch collection when not in use. Re-indexing takes <5 minutes.
+
+## 🧹 Cleanup
+
+To delete all resources and stop incurring costs:
 
 ```bash
-python scripts/04_test_invoke.py --query "What is our remote work policy?"
+# 1. Delete Bedrock agents & Knowledge Base
+python scripts/destroy_all.py
+
+# 2. Destroy infrastructure
+cd terraform
+terraform destroy -auto-approve
 ```
 
-## Project Structure
+This removes all billable resources. You can always redeploy using the same code.
 
-```
-multi-agent-bedrock/
-├── README.md
-├── requirements.txt
-├── .env.example
-├── lambda/
-│   ├── query_rewrite/
-│   │   └── handler.py          # Query rewrite via Claude Haiku
-│   ├── grader/
-│   │   └── handler.py          # Structured quality grader
-│   ├── image_generation_action/
-│   │   └── handler.py          # Titan Image Generator action group
-│   └── orchestrator/
-│       └── handler.py          # Top-level API Gateway entry point
-├── scripts/
-│   ├── 01_create_knowledge_base.py
-│   ├── 02_create_subagents.py
-│   ├── 03_create_supervisor.py
-│   ├── 04_test_invoke.py
-│   └── a2i_utils.py
-├── terraform/
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   ├── iam.tf
-│   ├── s3.tf
-│   ├── opensearch.tf
-│   ├── lambdas.tf
-│   └── a2i.tf
-└── stepfunctions/
-    └── workflow.asl.json
+## 🔒 Security
+
+- ✅ **IAM Roles** - Least privilege access for all components
+- ✅ **Encryption** - S3 and OpenSearch encrypted at rest
+- ✅ **VPC Isolation** - OpenSearch in VPC (via security policies)
+- ✅ **API Gateway** - HTTPS only
+- ✅ **Resource Policies** - Explicit permissions on S3 and OpenSearch
+- ✅ **CloudWatch Logs** - Full audit trail of all operations
+
+## 📊 Monitoring
+
+All components write logs to CloudWatch:
+
+```bash
+# View Lambda logs
+aws logs tail /aws/lambda/multi-agent-bedrock-dev-orchestrator --follow
+
+# View agent traces (includes delegation calls)
+# Available in Bedrock Console → Agents → Test → Trace tab
 ```
 
-## Environment Variables Reference
+## 🤝 Contributing
 
-See `.env.example` for the full list. Key variables:
+This is a reference implementation. Feel free to:
+- Fork and modify for your use case
+- Add new specialized agents
+- Integrate with other AWS services
+- Submit issues for bugs or questions
 
-| Variable | Description |
-|---|---|
-| `AWS_ACCOUNT_ID` | Your 12-digit AWS account ID |
-| `AWS_REGION` | Target region (default: `eu-west-1`) |
-| `BEDROCK_AGENT_ROLE_ARN` | IAM role ARN for Bedrock agents |
-| `KB_ROLE_ARN` | IAM role ARN for Knowledge Base |
-| `S3_DOCS_BUCKET` | S3 bucket name for source documents |
-| `S3_IMAGES_BUCKET` | S3 bucket name for generated images |
-| `OPENSEARCH_COLLECTION_ARN` | OpenSearch Serverless collection ARN |
-| `KB_ID` | Knowledge Base ID (set by script 01) |
-| `RAG_AGENT_ID` / `RAG_ALIAS_ID` | RAG sub-agent IDs (set by script 02) |
-| `IMAGE_AGENT_ID` / `IMAGE_ALIAS_ID` | Image sub-agent IDs (set by script 02) |
-| `SUPERVISOR_AGENT_ID` / `SUPERVISOR_ALIAS_ID` | Supervisor agent IDs (set by script 03) |
-| `A2I_FLOW_ARN` | A2I Flow Definition ARN (manual, from Console) |
+## 📄 License
 
-## Cost Considerations
+MIT License - See LICENSE file for details
 
-- **Bedrock FM tokens**: Pay-per-use. Claude Haiku is cheapest for query rewrite + grading.
-- **OpenSearch Serverless**: Minimum ~$350/month for 2 OCUs. Consider this before enabling in dev.
-- **Lambda**: Effectively free at this invocation volume.
-- **Titan Image Generator**: ~$0.01–$0.08 per image depending on resolution/quality.
-- **A2I**: Pay per human review task + reviewer cost.
+## 🙏 Acknowledgments
 
-Tag all resources with `Project=multi-agent-bedrock` (configured in Terraform) for Cost Explorer visibility.
+Built with:
+- [AWS Bedrock](https://aws.amazon.com/bedrock/) - Foundation models and agents
+- [Terraform](https://www.terraform.io/) - Infrastructure as Code
+- [boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html) - AWS SDK for Python
+
+---
+
+**Questions?** Open an issue or check the detailed architecture in [ARCHITECTURE.md](ARCHITECTURE.md)
